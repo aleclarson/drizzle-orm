@@ -108,7 +108,7 @@ export function mapColumnsInAliasedSQLToAlias(query: SQL.Aliased, alias: string)
 }
 
 export function mapColumnsInSQLToAlias(query: SQL, alias: string): SQL {
-	return sql.join(query.queryChunks.map((c) => {
+	const newSql = sql.join(query.queryChunks.map((c) => {
 		if (is(c, Column)) {
 			return aliasedTableColumn(c, alias);
 		}
@@ -120,4 +120,6 @@ export function mapColumnsInSQLToAlias(query: SQL, alias: string): SQL {
 		}
 		return c;
 	}));
+	newSql.decoder = query.decoder;
+	return newSql;
 }
