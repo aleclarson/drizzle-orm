@@ -1,13 +1,7 @@
 import type { Cache } from '~/cache/core/cache.ts';
 import { entityKind } from '~/entity.ts';
 import type { PgDialect } from '~/pg-core/dialect.ts';
-import {
-	PgDeleteBase,
-	PgInsertBuilder,
-	PgSelectBuilder,
-	PgUpdateBuilder,
-	QueryBuilder,
-} from '~/pg-core/query-builders/index.ts';
+import { PgDeleteBase, PgInsertBuilder, PgSelectBuilder, PgUpdateBuilder } from '~/pg-core/query-builders/index.ts';
 import type {
 	PgQueryResultHKT,
 	PgQueryResultKind,
@@ -17,9 +11,7 @@ import type {
 	PreparedQueryConfig,
 } from '~/pg-core/session.ts';
 import type { PgTable } from '~/pg-core/table.ts';
-import type { TypedQueryBuilder } from '~/query-builders/query-builder.ts';
 import type { ExtractTablesWithRelations, RelationalSchemaConfig, TablesRelationalConfig } from '~/relations.ts';
-import { SelectionProxyHandler } from '~/selection-proxy.ts';
 import { type ColumnsSelection, type SQL, sql, type SQLWrapper } from '~/sql/sql.ts';
 import { WithSubquery } from '~/subquery.ts';
 import type { DrizzleTypeError, NeonAuthToken } from '~/utils.ts';
@@ -29,7 +21,7 @@ import { RelationalQueryBuilder } from './query-builders/query.ts';
 import { PgRaw } from './query-builders/raw.ts';
 import { PgRefreshMaterializedView } from './query-builders/refresh-materialized-view.ts';
 import type { SelectedFields } from './query-builders/select.types.ts';
-import type { WithBuilder } from './subquery.ts';
+import { WithSubqueryBuilder } from './subquery.ts';
 import type { PgViewBase } from './view-base.ts';
 import type { PgMaterializedView } from './view.ts';
 
@@ -73,10 +65,12 @@ export class PgDatabase<
 				tableNamesMap: {},
 				session,
 			};
-		this.query = {} as typeof this['query'];
+		this.query = {} as (typeof this)['query'];
 		if (this._.schema) {
 			for (const [tableName, columns] of Object.entries(this._.schema)) {
-				(this.query as PgDatabase<TQueryResult, Record<string, any>>['query'])[tableName] = new RelationalQueryBuilder(
+				(this.query as PgDatabase<TQueryResult, Record<string, any>>['query'])[
+					tableName
+				] = new RelationalQueryBuilder(
 					schema!.fullSchema,
 					this._.schema,
 					this._.tableNamesMap,
@@ -122,30 +116,14 @@ export class PgDatabase<
 	 * const result = await db.with(sq).select({ name: sq.name }).from(sq);
 	 * ```
 	 */
-	$with: WithBuilder = (alias: string, selection?: ColumnsSelection) => {
-		const self = this;
-		const as = (
-			qb:
-				| TypedQueryBuilder<ColumnsSelection | undefined>
-				| SQL
-				| ((qb: QueryBuilder) => TypedQueryBuilder<ColumnsSelection | undefined> | SQL),
-		) => {
-			if (typeof qb === 'function') {
-				qb = qb(new QueryBuilder(self.dialect));
-			}
-
-			return new Proxy(
-				new WithSubquery(
-					qb.getSQL(),
-					selection ?? ('getSelectedFields' in qb ? qb.getSelectedFields() ?? {} : {}) as SelectedFields,
-					alias,
-					true,
-				),
-				new SelectionProxyHandler({ alias, sqlAliasedBehavior: 'alias', sqlBehavior: 'error' }),
-			);
-		};
-		return { as };
-	};
+	$with<TAlias extends string>(alias: TAlias): WithSubqueryBuilder<TAlias>;
+	$with<TAlias extends string, TSelection extends ColumnsSelection>(
+		alias: TAlias,
+		selection: TSelection,
+	): WithSubqueryBuilder<TAlias, TSelection>;
+	$with(alias: string, selection?: ColumnsSelection) {
+		return new WithSubqueryBuilder(this.dialect, alias, selection);
+	}
 
 	$count(
 		source: PgTable | PgViewBase | SQL | SQLWrapper,
@@ -215,8 +193,12 @@ export class PgDatabase<
 		 * ```
 		 */
 		function select(): PgSelectBuilder<undefined>;
-		function select<TSelection extends SelectedFields>(fields: TSelection): PgSelectBuilder<TSelection>;
-		function select<TSelection extends SelectedFields>(fields?: TSelection): PgSelectBuilder<TSelection | undefined> {
+		function select<TSelection extends SelectedFields>(
+			fields: TSelection,
+		): PgSelectBuilder<TSelection>;
+		function select<TSelection extends SelectedFields>(
+			fields?: TSelection,
+		): PgSelectBuilder<TSelection | undefined> {
 			return new PgSelectBuilder({
 				fields: fields ?? undefined,
 				session: self.session,
@@ -250,7 +232,9 @@ export class PgDatabase<
 		 * ```
 		 */
 		function selectDistinct(): PgSelectBuilder<undefined>;
-		function selectDistinct<TSelection extends SelectedFields>(fields: TSelection): PgSelectBuilder<TSelection>;
+		function selectDistinct<TSelection extends SelectedFields>(
+			fields: TSelection,
+		): PgSelectBuilder<TSelection>;
 		function selectDistinct<TSelection extends SelectedFields>(
 			fields?: TSelection,
 		): PgSelectBuilder<TSelection | undefined> {
@@ -288,7 +272,9 @@ export class PgDatabase<
 		 *   .orderBy(cars.brand, cars.color);
 		 * ```
 		 */
-		function selectDistinctOn(on: (PgColumn | SQLWrapper)[]): PgSelectBuilder<undefined>;
+		function selectDistinctOn(
+			on: (PgColumn | SQLWrapper)[],
+		): PgSelectBuilder<undefined>;
 		function selectDistinctOn<TSelection extends SelectedFields>(
 			on: (PgColumn | SQLWrapper)[],
 			fields: TSelection,
@@ -333,7 +319,9 @@ export class PgDatabase<
 		 *   .returning();
 		 * ```
 		 */
-		function update<TTable extends PgTable>(table: TTable): PgUpdateBuilder<TTable, TQueryResult> {
+		function update<TTable extends PgTable>(
+			table: TTable,
+		): PgUpdateBuilder<TTable, TQueryResult> {
 			return new PgUpdateBuilder(table, self.session, self.dialect, queries);
 		}
 
@@ -361,7 +349,9 @@ export class PgDatabase<
 		 *   .returning();
 		 * ```
 		 */
-		function insert<TTable extends PgTable>(table: TTable): PgInsertBuilder<TTable, TQueryResult> {
+		function insert<TTable extends PgTable>(
+			table: TTable,
+		): PgInsertBuilder<TTable, TQueryResult> {
 			return new PgInsertBuilder(table, self.session, self.dialect, queries);
 		}
 
@@ -389,11 +379,20 @@ export class PgDatabase<
 		 *   .returning();
 		 * ```
 		 */
-		function delete_<TTable extends PgTable>(table: TTable): PgDeleteBase<TTable, TQueryResult> {
+		function delete_<TTable extends PgTable>(
+			table: TTable,
+		): PgDeleteBase<TTable, TQueryResult> {
 			return new PgDeleteBase(table, self.session, self.dialect, queries);
 		}
 
-		return { select, selectDistinct, selectDistinctOn, update, insert, delete: delete_ };
+		return {
+			select,
+			selectDistinct,
+			selectDistinctOn,
+			update,
+			insert,
+			delete: delete_,
+		};
 	}
 
 	/**
@@ -433,8 +432,12 @@ export class PgDatabase<
 	 * ```
 	 */
 	select(): PgSelectBuilder<undefined>;
-	select<TSelection extends SelectedFields>(fields: TSelection): PgSelectBuilder<TSelection>;
-	select<TSelection extends SelectedFields>(fields?: TSelection): PgSelectBuilder<TSelection | undefined> {
+	select<TSelection extends SelectedFields>(
+		fields: TSelection,
+	): PgSelectBuilder<TSelection>;
+	select<TSelection extends SelectedFields>(
+		fields?: TSelection,
+	): PgSelectBuilder<TSelection | undefined> {
 		return new PgSelectBuilder({
 			fields: fields ?? undefined,
 			session: this.session,
@@ -467,8 +470,12 @@ export class PgDatabase<
 	 * ```
 	 */
 	selectDistinct(): PgSelectBuilder<undefined>;
-	selectDistinct<TSelection extends SelectedFields>(fields: TSelection): PgSelectBuilder<TSelection>;
-	selectDistinct<TSelection extends SelectedFields>(fields?: TSelection): PgSelectBuilder<TSelection | undefined> {
+	selectDistinct<TSelection extends SelectedFields>(
+		fields: TSelection,
+	): PgSelectBuilder<TSelection>;
+	selectDistinct<TSelection extends SelectedFields>(
+		fields?: TSelection,
+	): PgSelectBuilder<TSelection | undefined> {
 		return new PgSelectBuilder({
 			fields: fields ?? undefined,
 			session: this.session,
@@ -546,7 +553,9 @@ export class PgDatabase<
 	 *   .returning();
 	 * ```
 	 */
-	update<TTable extends PgTable>(table: TTable): PgUpdateBuilder<TTable, TQueryResult> {
+	update<TTable extends PgTable>(
+		table: TTable,
+	): PgUpdateBuilder<TTable, TQueryResult> {
 		return new PgUpdateBuilder(table, this.session, this.dialect);
 	}
 
@@ -574,7 +583,9 @@ export class PgDatabase<
 	 *   .returning();
 	 * ```
 	 */
-	insert<TTable extends PgTable>(table: TTable): PgInsertBuilder<TTable, TQueryResult> {
+	insert<TTable extends PgTable>(
+		table: TTable,
+	): PgInsertBuilder<TTable, TQueryResult> {
 		return new PgInsertBuilder(table, this.session, this.dialect);
 	}
 
@@ -602,11 +613,15 @@ export class PgDatabase<
 	 *   .returning();
 	 * ```
 	 */
-	delete<TTable extends PgTable>(table: TTable): PgDeleteBase<TTable, TQueryResult> {
+	delete<TTable extends PgTable>(
+		table: TTable,
+	): PgDeleteBase<TTable, TQueryResult> {
 		return new PgDeleteBase(table, this.session, this.dialect);
 	}
 
-	refreshMaterializedView<TView extends PgMaterializedView>(view: TView): PgRefreshMaterializedView<TQueryResult> {
+	refreshMaterializedView<TView extends PgMaterializedView>(
+		view: TView,
+	): PgRefreshMaterializedView<TQueryResult> {
 		return new PgRefreshMaterializedView(view, this.session, this.dialect);
 	}
 
@@ -619,12 +634,7 @@ export class PgDatabase<
 		const builtQuery = this.dialect.sqlToQuery(sequel);
 		const prepared = this.session.prepareQuery<
 			PreparedQueryConfig & { execute: PgQueryResultKind<TQueryResult, TRow> }
-		>(
-			builtQuery,
-			undefined,
-			undefined,
-			false,
-		);
+		>(builtQuery, undefined, undefined, false);
 		return new PgRaw(
 			() => prepared.execute(undefined, this.authToken),
 			sequel,
@@ -634,7 +644,9 @@ export class PgDatabase<
 	}
 
 	transaction<T>(
-		transaction: (tx: PgTransaction<TQueryResult, TFullSchema, TSchema>) => Promise<T>,
+		transaction: (
+			tx: PgTransaction<TQueryResult, TFullSchema, TSchema>,
+		) => Promise<T>,
 		config?: PgTransactionConfig,
 	): Promise<T> {
 		return this.session.transaction(transaction, config);
@@ -650,7 +662,8 @@ export const withReplicas = <
 	Q extends PgDatabase<
 		HKT,
 		TFullSchema,
-		TSchema extends Record<string, unknown> ? ExtractTablesWithRelations<TFullSchema> : TSchema
+		TSchema extends Record<string, unknown> ? ExtractTablesWithRelations<TFullSchema>
+			: TSchema
 	>,
 >(
 	primary: Q,
@@ -669,8 +682,9 @@ export const withReplicas = <
 	const $delete: Q['delete'] = (...args: [any]) => primary.delete(...args);
 	const execute: Q['execute'] = (...args: [any]) => primary.execute(...args);
 	const transaction: Q['transaction'] = (...args: [any]) => primary.transaction(...args);
-	const refreshMaterializedView: Q['refreshMaterializedView'] = (...args: [any]) =>
-		primary.refreshMaterializedView(...args);
+	const refreshMaterializedView: Q['refreshMaterializedView'] = (
+		...args: [any]
+	) => primary.refreshMaterializedView(...args);
 
 	return {
 		...primary,
