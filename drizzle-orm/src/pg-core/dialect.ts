@@ -23,11 +23,12 @@ import type {
 	AnyPgSelectQueryBuilder,
 	PgDeleteConfig,
 	PgInsertConfig,
+	PgInsertSelection,
 	PgSelectJoinConfig,
 	PgUpdateConfig,
 } from '~/pg-core/query-builders/index.ts';
 import type { PgSelectConfig, SelectedFieldsOrdered } from '~/pg-core/query-builders/select.types.ts';
-import { PgTable } from '~/pg-core/table.ts';
+import { AnyPgTable, PgTable } from '~/pg-core/table.ts';
 import {
 	// AggregatedField,
 	type BuildRelationalQueryResult,
@@ -45,6 +46,7 @@ import {
 } from '~/relations.ts';
 import { and, eq, isSQLWrapper, type SQLWrapper, View } from '~/sql/index.ts';
 import {
+	ColumnsSelection,
 	type DriverValueEncoder,
 	type Name,
 	Param,
@@ -61,6 +63,7 @@ import { ViewBaseConfig } from '~/view-common.ts';
 import type { PgSession } from './session.ts';
 import { PgViewBase } from './view-base.ts';
 import type { PgMaterializedView, PgView } from './view.ts';
+import { TypedQueryBuilder } from '~/query-builders/query-builder.ts';
 
 export interface PgDialectConfig {
 	casing?: Casing;
@@ -504,7 +507,13 @@ export class PgDialect {
 		const valuesSqlList: ((SQLChunk | SQL)[] | SQL)[] = [];
 		const columns: Record<string, PgColumn> = table[Table.Symbol.Columns];
 
-		const colEntries: [string, PgColumn][] = Object.entries(columns).filter(([_, col]) => !col.shouldDisableInsert());
+		const colEntries: [string, PgColumn][] = select && is(valuesOrSelect, TypedQueryBuilder)
+			? Object
+				.keys(valuesOrSelect._.selectedFields)
+				.map((key): [string, PgColumn] => [key, columns[key]!])
+			: overridingSystemValue_
+			? Object.entries(columns)
+			: Object.entries(columns).filter(([_, col]) => !col.shouldDisableInsert());
 
 		const insertOrder = colEntries.map(
 			([, column]) => sql.identifier(this.casing.getColumnCasing(column)),
