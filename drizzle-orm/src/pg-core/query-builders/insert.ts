@@ -19,9 +19,9 @@ import type { ColumnsSelection, Placeholder, Query, SQLWrapper } from '~/sql/sql
 import { Param, SQL, sql } from '~/sql/sql.ts';
 import type { Subquery } from '~/subquery.ts';
 import type { InferInsertModel } from '~/table.ts';
-import { Columns, getTableName, Table } from '~/table.ts';
+import { getTableName, Table } from '~/table.ts';
 import { tracer } from '~/tracing.ts';
-import { haveSameKeys, mapUpdateSet, type NeonAuthToken, orderSelectedFields } from '~/utils.ts';
+import { type DrizzleTypeError, mapUpdateSet, type NeonAuthToken, orderSelectedFields } from '~/utils.ts';
 import type { AnyPgColumn, PgColumn } from '../columns/common.ts';
 import { extractUsedTable } from '../utils.ts';
 import { QueryBuilder } from './query-builder.ts';
@@ -30,7 +30,7 @@ import type { PgUpdateSetSource } from './update.ts';
 
 export interface PgInsertConfig<TTable extends PgTable = PgTable> {
 	table: TTable;
-	values: Record<string, Param | SQL>[] | PgInsertSelectQueryBuilder<TTable> | SQL;
+	values: Record<string, Param | SQL>[] | TypedQueryBuilder<PgInsertSelection<TTable>> | SQL;
 	withList?: Subquery[];
 	onConflict?: SQL;
 	returningFields?: SelectedFieldsFlat;
@@ -40,17 +40,48 @@ export interface PgInsertConfig<TTable extends PgTable = PgTable> {
 }
 
 export type PgInsertValue<TTable extends PgTable<TableConfig>, OverrideT extends boolean = false> =
-	& {
-		[Key in keyof InferInsertModel<TTable, { dbColumnNames: false; override: OverrideT }>]:
-			| InferInsertModel<TTable, { dbColumnNames: false; override: OverrideT }>[Key]
-			| SQL
-			| Placeholder;
-	}
-	& {};
+	InferInsertModel<TTable, { dbColumnNames: false; override: OverrideT }> extends infer TInsertion ?
+			& {}
+			& {
+				[Key in keyof TInsertion]:
+					| TInsertion[Key]
+					| SQL
+					| Placeholder;
+			}
+		: never;
 
-export type PgInsertSelectQueryBuilder<TTable extends PgTable> = TypedQueryBuilder<
-	{ [K in keyof TTable['$inferInsert']]: AnyPgColumn | SQL | SQL.Aliased | TTable['$inferInsert'][K] }
->;
+export type PgInsertSelection<TTable extends PgTable<TableConfig>, OverrideT extends boolean = false> =
+	InferInsertModel<TTable, { dbColumnNames: false; override: OverrideT }> extends infer TInsertion ?
+			& {}
+			& {
+				[Key in keyof TInsertion]:
+					| TInsertion[Key]
+					| AnyPgColumn
+					| SQL
+					| SQL.Aliased;
+			}
+		: never;
+
+export type PgInsertSelectQueryBuilder<
+	TTable extends PgTable,
+	OverrideT extends boolean = false,
+	TSelection extends PgInsertSelection<TTable, OverrideT> = never,
+> = TSelection extends never ? TypedQueryBuilder<PgInsertSelection<TTable>>
+	: InferInsertModel<TTable, { dbColumnNames: false; override: OverrideT }> extends infer TInsertion
+		? TypedQueryBuilder<
+			{
+				[Key in keyof TSelection]: Key extends keyof TInsertion ? TSelection[Key]
+					: Key extends keyof TTable['$inferSelect'] ? DrizzleTypeError<
+							`Column "${
+								& Key
+								& string}" in table "${TTable['_'][
+								'name'
+							]}" is a generated column. Use \`.overridingSystemValue()\` to manually insert into this column`
+						>
+					: DrizzleTypeError<`Column "${Key & string}" does not exist in table "${TTable['_']['name']}"`>;
+			}
+		>
+	: never;
 
 export class PgInsertBuilder<
 	TTable extends PgTable,
@@ -109,28 +140,43 @@ export class PgInsertBuilder<
 		).setToken(this.authToken) as any;
 	}
 
-	select(selectQuery: (qb: QueryBuilder) => PgInsertSelectQueryBuilder<TTable>): PgInsertBase<TTable, TQueryResult>;
+	select<TSelection extends PgInsertSelection<TTable, OverrideT>>(
+		selectQuery: PgInsertSelectQueryBuilder<TTable, OverrideT, TSelection>,
+	): PgInsertBase<TTable, TQueryResult>;
+	select<TSelection extends PgInsertSelection<TTable, OverrideT>>(
+		selectQuery: (qb: QueryBuilder) => PgInsertSelectQueryBuilder<TTable, OverrideT, TSelection>,
+	): PgInsertBase<TTable, TQueryResult>;
 	select(selectQuery: (qb: QueryBuilder) => SQL): PgInsertBase<TTable, TQueryResult>;
 	select(selectQuery: SQL): PgInsertBase<TTable, TQueryResult>;
-	select(selectQuery: PgInsertSelectQueryBuilder<TTable>): PgInsertBase<TTable, TQueryResult>;
 	select(
 		selectQuery:
 			| SQL
-			| PgInsertSelectQueryBuilder<TTable>
-			| ((qb: QueryBuilder) => PgInsertSelectQueryBuilder<TTable> | SQL),
+			| PgInsertSelectQueryBuilder<TTable, OverrideT, any>
+			| ((qb: QueryBuilder) =>
+				| PgInsertSelectQueryBuilder<TTable, OverrideT, any>
+				| SQL),
 	): PgInsertBase<TTable, TQueryResult> {
 		const select = typeof selectQuery === 'function' ? selectQuery(new QueryBuilder()) : selectQuery;
 
-		if (
-			!is(select, SQL)
-			&& !haveSameKeys(this.table[Columns], select._.selectedFields)
-		) {
-			throw new Error(
-				'Insert select error: selected fields are not the same or are in a different order compared to the table definition',
-			);
+		if (!is(select, SQL)) {
+			for (const key of Object.keys(select._.selectedFields)) {
+				if (!Object.prototype.hasOwnProperty.call(this.table[Table.Symbol.Columns], key)) {
+					throw new Error(
+						`Insert select error: column "${key}" does not exist in table "${this.table[Table.Symbol.Name]}"`,
+					);
+				}
+			}
 		}
 
-		return new PgInsertBase(this.table, select, this.session, this.dialect, this.withList, true);
+		return new PgInsertBase(
+			this.table,
+			select,
+			this.session,
+			this.dialect,
+			this.withList,
+			true,
+			this.overridingSystemValue_,
+		).setToken(this.authToken) as any;
 	}
 }
 
