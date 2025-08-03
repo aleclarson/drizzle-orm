@@ -25,6 +25,10 @@ async function updateAndCopyPackageJson() {
 		}>
 	>(
 		(acc, rawEntry) => {
+			// Skip all dialects but Postgres. This makes intellisense work better.
+			if (rawEntry.includes('-core') && !rawEntry.includes('pg-core')) {
+				return acc;
+			}
 			const entry = rawEntry.match(/src\/(.*)\.ts/)![1]!;
 			const exportsEntry = entry === 'index' ? '.' : './' + entry.replace(/\/index$/, '');
 			const importEntry = `./${entry}.js`;
