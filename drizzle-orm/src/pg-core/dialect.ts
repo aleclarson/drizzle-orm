@@ -348,30 +348,6 @@ export class PgDialect {
 		}: PgSelectConfig,
 	): SQL {
 		const fieldsList = fieldsFlat ?? orderSelectedFields<PgColumn>(fields);
-		for (const f of fieldsList) {
-			if (
-				is(f.field, Column)
-				&& getTableName(f.field.table)
-					!== (is(table, Subquery)
-						? table._.alias
-						: is(table, PgViewBase)
-						? table[ViewBaseConfig].name
-						: is(table, SQL)
-						? undefined
-						: getTableName(table))
-				&& !((table) =>
-					joins?.some(({ alias }) =>
-						alias === (table[Table.Symbol.IsAlias] ? getTableName(table) : table[Table.Symbol.BaseName])
-					))(f.field.table)
-			) {
-				const tableName = getTableName(f.field.table);
-				throw new Error(
-					`Your "${
-						f.path.join('->')
-					}" field references a column "${tableName}"."${f.field.name}", but the table "${tableName}" is not part of the query! Did you forget to join it?`,
-				);
-			}
-		}
 
 		const isSingleTable = !joins || joins.length === 0;
 
