@@ -76,5 +76,6 @@ await $`scripts/fix-imports.ts`;
 
 await fs.copy('../README.md', 'dist.new/README.md');
 await updateAndCopyPackageJson();
+await fs.copy('dist/.git', 'dist.new/.git');
 await fs.remove('dist');
 await fs.rename('dist.new', 'dist');
