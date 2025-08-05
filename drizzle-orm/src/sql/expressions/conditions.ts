@@ -30,14 +30,12 @@ export function bindIfParam(value: unknown, column: SQLWrapper): SQLChunk {
 }
 
 export interface BinaryOperator {
-	<TColumn extends Column>(
-		left: TColumn,
-		right: GetColumnData<TColumn, 'raw'> | SQLWrapper,
-	): SQL;
-	<T>(left: SQL.Aliased<T>, right: T | SQLWrapper): SQL;
-	<T extends SQLWrapper>(
-		left: Exclude<T, SQL.Aliased | Column>,
-		right: unknown,
+	<TLeft extends SQLWrapper>(
+		left: TLeft,
+		right: TLeft extends Column ? GetColumnData<TLeft, 'raw'> | SQLWrapper
+			: TLeft extends SQL.Aliased<infer T> ? T | SQLWrapper
+			: TLeft extends SQLWrapper ? unknown
+			: never,
 	): SQL;
 }
 
