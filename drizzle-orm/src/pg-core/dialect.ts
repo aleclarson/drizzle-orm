@@ -227,7 +227,7 @@ export class PgDialect {
 				const chunk: SQLChunk[] = [];
 
 				if (is(field, SQL.Aliased) && field.isSelectionField) {
-					chunk.push(sql.identifier(field.fieldAlias));
+					chunk.push(field);
 				} else if (is(field, SQL.Aliased) || is(field, SQL)) {
 					const query = is(field, SQL.Aliased) ? field.sql : field;
 
@@ -246,8 +246,8 @@ export class PgDialect {
 						chunk.push(query);
 					}
 
-					if (is(field, SQL.Aliased)) {
-						chunk.push(sql` as ${sql.identifier(field.fieldAlias)}`);
+					if (is(field, SQL.Aliased) && field.fieldAlias !== undefined) {
+						chunk.push(sql` as ${field}`);
 					}
 				} else if (is(field, Column)) {
 					if (isSingleTable) {

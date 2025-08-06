@@ -259,7 +259,10 @@ export class SQL<T = unknown> implements SQLWrapper<T> {
 			}
 
 			if (is(chunk, SQL.Aliased) && chunk.fieldAlias !== undefined) {
-				return { sql: escapeName(chunk.fieldAlias), params: [] };
+				return {
+					sql: (chunk.tableAlias ? escapeName(chunk.tableAlias) + '.' : '') + escapeName(chunk.fieldAlias),
+					params: [],
+				};
 			}
 
 			if (is(chunk, Subquery)) {
@@ -582,6 +585,9 @@ export namespace SQL {
 
 		/** @internal */
 		isSelectionField = false;
+
+		/** @internal */
+		tableAlias: string | undefined;
 
 		constructor(
 			readonly sql: SQL<T>,
